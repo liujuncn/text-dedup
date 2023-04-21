@@ -74,6 +74,7 @@ def embed_func(
     content: str,
     idx: int,
     *,
+    lang: str,
     num_perm: int,
     ngram_size: int,
     min_length: int,
@@ -130,7 +131,11 @@ def embed_func(
     """
     a, b = permutations
     masks: np.ndarray = np.full(shape=num_perm, dtype=np.uint64, fill_value=MAX_HASH)
-    tokens: Set[str] = {" ".join(t) for t in ngrams(NON_ALPHA.split(content), ngram_size, min_length)}
+    assert lang in ['en', 'zh']
+    if lang == 'en':
+        tokens: Set[str] = {" ".join(t) for t in ngrams(NON_ALPHA.split(content), ngram_size, min_length)}
+    elif lang == 'zh':
+        tokens: Set[str] = {" ".join(t) for t in ngrams(list(content), ngram_size, min_length)}
     hashvalues: np.ndarray = np.array([sha1_hash(token.encode("utf-8")) for token in tokens], dtype=np.uint64)
     permuted_hashvalues = np.bitwise_and(
         ((hashvalues * np.tile(a, (len(hashvalues), 1)).T).T + b) % MERSENNE_PRIME, MAX_HASH
@@ -235,7 +240,8 @@ if __name__ == "__main__":  # pragma: no cover
     with timer("Total"):
         with timer("Loading"):
             if args.local:
-                ds = load_from_disk(args.path)
+                # ds = load_from_disk(args.path)
+                ds = load_dataset(path=args.path)['test']
             else:
                 ds = load_dataset(
                     path=args.path,
@@ -244,11 +250,11 @@ if __name__ == "__main__":  # pragma: no cover
                     data_files=args.data_files,
                     split=args.split,
                     revision=args.revision,
-                    cache_dir=args.cache_dir,
-                    use_auth_token=args.use_auth_token,
+                    # cache_dir=args.cache_dir,
+                    # use_auth_token=args.use_auth_token,
                 )
 
-        DATA_SIZE = len(ds)
+        # DATA_SIZE = len(ds)
         PERMUTATIONS = np.array(
             [
                 (
@@ -264,6 +270,7 @@ if __name__ == "__main__":  # pragma: no cover
             embedded = ds.map(
                 function=embed_func,
                 fn_kwargs={
+                    "lang": args.lang,
                     "num_perm": args.num_perm,
                     "hashranges": HASH_RANGES,
                     "ngram_size": args.ngram,
@@ -321,9 +328,9 @@ if __name__ == "__main__":  # pragma: no cover
         with timer("Saving"):
             final_data = final_data.remove_columns(["__cluster__"])
             final_data.save_to_disk(args.output)
-            if args.debug:
-                with open(os.path.join(args.output, "uf.pkl"), "wb") as f:
-                    pickle.dump(uf, f, protocol=pickle.HIGHEST_PROTOCOL)
+            # if args.debug:
+            #     with open(os.path.join(args.output, "uf.pkl"), "wb") as f:
+            #         pickle.dump(uf, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     PAD = 32
     for k, v in timer.elapsed_times.items():
