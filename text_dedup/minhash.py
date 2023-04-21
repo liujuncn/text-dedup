@@ -213,6 +213,87 @@ def optimal_param(
     return opt
 
 
+# dedup helper function
+def minhash_dedup(
+        input_dataset, column, lang='zh', ngram=2, min_length=5, 
+        threshold=0.7, num_perm=256, batch_size=10000
+):
+    mp.set_start_method("fork", force=True)
+    uf = UnionFind()
+    timer = Timer()
+    B, R = optimal_param(threshold, num_perm)
+    HASH_RANGES = [(i * R, (i + 1) * R) for i in range(B)]
+    HASH_TABLES: List[Dict[int, Set]] = [defaultdict(set) for _ in range(B)]
+    with timer("Total"):
+        ds = input_dataset
+        PERMUTATIONS = np.array(
+            [
+                (
+                    RNG.randint(1, MERSENNE_PRIME, dtype=np.uint64),
+                    RNG.randint(0, MERSENNE_PRIME, dtype=np.uint64),
+                )
+                for _ in range(num_perm)
+            ],
+            dtype=np.uint64,
+        ).T
+        with timer("MinHashing"):
+            embedded = ds.map(
+                function=embed_func,
+                fn_kwargs={
+                    "lang": lang,
+                    "num_perm": num_perm,
+                    "hashranges": HASH_RANGES,
+                    "ngram_size": ngram,
+                    "min_length": min_length,
+                    "permutations": PERMUTATIONS,
+                },
+                input_columns=[column],
+                remove_columns=ds.column_names,
+                num_proc=os.cpu_count(),
+                with_indices=True,
+                desc="Fingerprinting...",
+            )
+        with timer("Clustering"):
+            for i in tqdm(
+                range(0, len(embedded), batch_size),
+                dynamic_ncols=True,
+                desc="Iterating MinHashes...",
+            ):
+                batch = embedded[i : i + batch_size]
+                for key, Hs in zip(batch["__id__"], batch["__signatures__"]):
+                    for i, H in enumerate(Hs):
+                        HASH_TABLES[i][H].add(key)
+            for table in tqdm(HASH_TABLES, dynamic_ncols=True, desc="Clustering..."):
+                for cluster in table.values():
+                    if len(cluster) <= 1:
+                        continue
+                    idx = min(cluster)
+                    for x in cluster:
+                        uf.union(x, idx)
+        with timer("Filtering"):
+            gc.freeze()
+            gc.disable()
+            ds = ds.map(
+                function=lambda _, idx: {"__cluster__": uf.find(idx)},
+                with_indices=True,
+                num_proc=os.cpu_count(),
+                new_fingerprint=str(random.getrandbits(128)),
+                desc="Finding clusters...",
+            )
+            gc.enable()
+            gc.collect()
+            # This is where the deduplication happens
+            final_data = ds.filter(
+                function=lambda record, idx: record["__cluster__"] == idx,
+                with_indices=True,
+                num_proc=os.cpu_count(),
+                desc="Filtering clusters...",
+            )
+        with timer("Saving"):
+            final_data = final_data.remove_columns(["__cluster__"])
+            return final_data
+
+
 if __name__ == "__main__":  # pragma: no cover
 
     parser = argparse.ArgumentParser(
