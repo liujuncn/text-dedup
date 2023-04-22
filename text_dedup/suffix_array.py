@@ -278,7 +278,8 @@ def clean_up(text: str, slices: List[slice]) -> str:
 
 # dedup helper function
 def suffix_array_substr_dedup(
-        input_dataset, column,  output_path, k=40, strategy="longest",
+        input_dataset, column,  output_path, cmd_path,
+        k=40, strategy="longest",
         cache_dir="~/.cache"
 ):
     """
@@ -303,7 +304,7 @@ def suffix_array_substr_dedup(
                     f.write(doc_bytes)
         with timer("SuffixArray"):
             __run_command(
-                f"make_suffix_array.py {temp_text}",
+                f"{cmd_path}make_suffix_array.py {temp_text}",
                 output_path,
             )
         with timer("SelfSimilar"):
