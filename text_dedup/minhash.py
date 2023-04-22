@@ -216,8 +216,10 @@ def optimal_param(
 # dedup helper function
 def minhash_dedup(
         input_dataset, column, lang='zh', ngram=2, min_length=5, 
-        threshold=0.7, num_perm=256, batch_size=10000
+        threshold=0.7, num_perm=256, batch_size=10000, num_proc=None
 ):
+    if num_proc is None:
+        num_proc = os.cpu_count()
     mp.set_start_method("fork", force=True)
     uf = UnionFind()
     timer = Timer()
@@ -249,7 +251,7 @@ def minhash_dedup(
                 },
                 input_columns=[column],
                 remove_columns=ds.column_names,
-                num_proc=os.cpu_count(),
+                num_proc=num_proc,
                 with_indices=True,
                 desc="Fingerprinting...",
             )
@@ -276,7 +278,7 @@ def minhash_dedup(
             ds = ds.map(
                 function=lambda _, idx: {"__cluster__": uf.find(idx)},
                 with_indices=True,
-                num_proc=os.cpu_count(),
+                num_proc=num_proc,
                 new_fingerprint=str(random.getrandbits(128)),
                 desc="Finding clusters...",
             )
@@ -286,7 +288,7 @@ def minhash_dedup(
             final_data = ds.filter(
                 function=lambda record, idx: record["__cluster__"] == idx,
                 with_indices=True,
-                num_proc=os.cpu_count(),
+                num_proc=num_proc,
                 desc="Filtering clusters...",
             )
         with timer("Saving"):
@@ -322,7 +324,7 @@ if __name__ == "__main__":  # pragma: no cover
         with timer("Loading"):
             if args.local:
                 # ds = load_from_disk(args.path)
-                ds = load_dataset(path=args.path)['test']
+                ds = load_dataset(path=args.path)['train']
             else:
                 ds = load_dataset(
                     path=args.path,
