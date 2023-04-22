@@ -276,6 +276,71 @@ def clean_up(text: str, slices: List[slice]) -> str:
     return result.decode("utf-8", errors="ignore")
 
 
+# dedup helper function
+def suffix_array_substr_dedup(
+        input_dataset, column,  output_path, k=40, strategy="longest",
+        cache_dir="~/.cache"
+):
+    """
+    k: 重复子串的最小字节长度
+    """
+    (Path(output_path) / "output").mkdir(exist_ok=True, parents=True)
+    (Path(output_path) / "tmp").mkdir(exist_ok=True, parents=True)
+    temp_text = "output/temp_text.txt"
+    temp_output = "output/temp_output.txt"
+    timer = Timer()
+    ds = input_dataset
+    with timer("Total"):
+        with timer("Preprocessing"):
+            offsets: List[slice] = []
+            start = 0
+            with open(Path(output_path) / temp_text, "wb") as f:
+                for doc in ds:
+                    doc_bytes = doc[column].encode("utf-8")
+                    end = start + len(doc_bytes)
+                    offsets.append(slice(start, end))
+                    start = end
+                    f.write(doc_bytes)
+        with timer("SuffixArray"):
+            __run_command(
+                f"python scripts/make_suffix_array.py {temp_text}",
+                output_path,
+            )
+        with timer("SelfSimilar"):
+            __run_command(
+                f"cargo run self-similar --data-file {temp_text}"
+                f" --length-threshold {k} --cache-dir {cache_dir} --num-threads {os.cpu_count()}",
+                output_path,
+            )
+            __run_command(
+                f"cargo run collect --data-file {temp_text}"
+                f" --length-threshold {k} --cache-dir {cache_dir} >"
+                f" {temp_output}",
+                output_path,
+            )
+        with timer("Restore"):
+            duplicate_slices, duplicate_size = restore_and_merge(
+                offsets,
+                Path(output_path) / temp_output,
+                k,
+                strategy,
+            )
+        with timer("Deduplicate"):
+            ds = ds.map(
+                lambda content, idx: {
+                    column: clean_up(content, duplicate_slices[idx]),
+                },
+                with_indices=True,
+                input_columns=[column],
+                desc="Deduplicating",
+            ).filter(
+                lambda content: len(content) > 0,
+                input_columns=[column],
+                desc="Filtering empty documents",
+            )
+    return ds
+
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(
