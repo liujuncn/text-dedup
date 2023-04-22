@@ -303,7 +303,7 @@ def suffix_array_substr_dedup(
                     f.write(doc_bytes)
         with timer("SuffixArray"):
             __run_command(
-                f"python scripts/make_suffix_array.py {temp_text}",
+                f"make_suffix_array.py {temp_text}",
                 output_path,
             )
         with timer("SelfSimilar"):
