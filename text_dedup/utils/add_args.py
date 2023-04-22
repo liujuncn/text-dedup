@@ -168,9 +168,9 @@ def add_sa_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:  # 
         help="Strategy when there are overlapping duplicate substrings",
         choices=["overlapping", "longest"],
     )
-    parser.add_argument(
-        "--google_repo_path", type=str, help="Path to google-research-deduplication codebase", required=True
-    ),
+    # parser.add_argument(
+    #     "--google_repo_path", type=str, help="Path to google-research-deduplication codebase", required=True
+    # ),
     return parser
 
 
